@@ -1,0 +1,417 @@
+\documentclass[11pt,a4paper]{article}
+
+% ------------------------------------------------------------------
+%  Rapport de Lab Cyber -- Mentorat Cybersecurite / FORCE N
+%  Lab : DHCP Starvation sur routeur Cisco (GNS3 + c7200)
+% ------------------------------------------------------------------
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage[a4paper,margin=2.3cm]{geometry}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{tcolorbox}
+\usepackage[hidelinks]{hyperref}
+
+% ----- Couleurs de la charte -----
+\definecolor{forceblue}{HTML}{1E70BF}
+\definecolor{forcegreen}{HTML}{3AAA35}
+\definecolor{boxbg}{HTML}{F4F4F4}
+\definecolor{warnred}{HTML}{C0392B}
+
+% ----- Titres en bleu -----
+\titleformat{\section}{\normalfont\large\bfseries\color{forceblue}}{\thesection.}{0.6em}{}
+\titleformat{\subsection}{\normalfont\normalsize\bfseries\color{forceblue}}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{}{0em}{}
+
+% ----- En-tete / pied de page -----
+\pagestyle{fancy}
+\fancyhf{}
+\setlength{\headheight}{30pt}
+\lhead{\raisebox{-0.3\height}{\IfFileExists{images/logo_forcen.png}{\includegraphics[height=0.85cm]{images/logo_forcen.png}}{\footnotesize\color{forceblue}FORCE N}}}
+\rhead{\small\color{forceblue} DHCP Starvation (Cisco / GNS3), Mentorat Cybersécurité}
+\cfoot{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ----- Style des encadres de commandes -----
+\lstdefinestyle{cmd}{
+  basicstyle=\ttfamily\small,
+  frame=single,
+  rulecolor=\color{black!55},
+  backgroundcolor=\color{boxbg},
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  xleftmargin=4pt,
+  framexleftmargin=4pt,
+  showstringspaces=false,
+  literate={é}{{\'e}}1 {è}{{\`e}}1 {à}{{\`a}}1 {ê}{{\^e}}1 {î}{{\^i}}1 {ô}{{\^o}}1 {ç}{{\c c}}1 {É}{{\'E}}1
+}
+\lstset{style=cmd}
+
+% ----- Macro d'insertion de capture (placeholder si le fichier manque) -----
+\newcommand{\capture}[2]{%
+  \begin{center}
+  \IfFileExists{#1}{\includegraphics[width=0.88\linewidth]{#1}}{%
+    \setlength{\fboxsep}{10pt}%
+    \fbox{\parbox[c][3.2cm][c]{0.85\linewidth}{\centering\itshape%
+      [ Capture à insérer ]\\ \texttt{\detokenize{#1}}}}}\\[3pt]
+  {\small\itshape #2}
+  \end{center}}
+
+% ----- Encadre d'avertissement -----
+\newtcolorbox{avertissement}{colback=warnred!6,colframe=warnred,boxrule=0.8pt,arc=2pt,
+  fonttitle=\bfseries,title=Avertissement légal et éthique}
+
+% ----- Bloc signature (auteur + empreinte GPG) -----
+\input{signature.tex}
+
+\begin{document}
+
+% ================================================================
+%                        PAGE DE TITRE
+% ================================================================
+\begin{titlepage}
+\centering
+\vspace*{1.5cm}
+
+\IfFileExists{images/logo_forcen.png}{\includegraphics[width=7cm]{images/logo_forcen.png}}{\fbox{\parbox[c][3cm][c]{7cm}{\centering\itshape [ logo\_forcen.png ]}}}\par
+\vspace{1.2cm}
+
+{\Large\bfseries\color{forceblue} Mentorat CYBERSÉCURITÉ CYB6 / Groupe 3\par}
+\vspace{0.4cm}
+{\large Encadrant : M. Ibrahima Samba DIOP\par}
+{\small Consultant en Cybersécurité\par}
+\vspace{2.2cm}
+
+\rule{\linewidth}{0.5pt}\\[0.4cm]
+{\huge\bfseries Rapport de Lab\par}
+\vspace{0.4cm}
+{\LARGE DHCP Starvation sur routeur Cisco\\ (GNS3 + IOS c7200)\par}
+\rule{\linewidth}{0.5pt}\\[1.5cm]
+
+\begin{tabular}{rl}
+\textbf{Étudiant(e) :} & HAMADY CISSE \\[0.5cm]
+\textbf{Date :} & \today \\[0.5cm]
+\textbf{Environnement :} & GNS3 + Cisco c7200, réseau \texttt{192.168.6.0/24} \\
+\end{tabular}
+
+\vfill
+{\small Document réalisé dans un cadre strictement pédagogique et sur un laboratoire isolé.}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% ================================================================
+\section{Introduction}
+% ================================================================
+Ce rapport reprend l'attaque \textbf{DHCP Starvation} mais la reproduit sur un
+\textbf{véritable routeur Cisco}, dans l'environnement d'origine prévu par l'encadrant : une
+topologie \textbf{GNS3} dans laquelle un routeur Cisco joue le rôle de serveur DHCP. Il
+complète le rapport précédent, où le serveur DHCP était une machine VyOS sous VirtualBox.
+
+L'intérêt de cette seconde version est double : d'une part, coller à la maquette du cours
+(routeur Cisco « RouteurDHCP ») ; d'autre part, observer une \textbf{différence de comportement}
+entre deux serveurs DHCP face à la même attaque. Le routeur est émulé à partir d'une image IOS
+\texttt{c7200-adventerprisek9-mz.153-3.XB12} fournie par l'encadrant.
+
+\begin{avertissement}
+Toutes les manipulations décrites ont été réalisées exclusivement sur un laboratoire
+\textbf{isolé} (topologie GNS3 locale, sans exposition vers un réseau de production ni vers
+Internet), composé d'équipements émulés et de machines virtuelles appartenant à l'auteur.
+N'effectuez jamais ce type d'attaque sur un site, un système ou un réseau sans l'autorisation
+préalable et écrite du propriétaire.
+\end{avertissement}
+
+\subsection{Objectifs}
+\begin{itemize}[leftmargin=1.4em]
+  \item Monter sous GNS3 la topologie du cours avec un \textbf{vrai routeur Cisco} (image IOS
+        c7200) comme serveur DHCP.
+  \item Rattacher une machine \textbf{Kali} (VirtualBox) à la topologie et vérifier qu'elle
+        reçoit une adresse du routeur Cisco.
+  \item Réaliser l'attaque DHCP Starvation avec \texttt{yersinia} et prouver l'épuisement du
+        pool via \texttt{show ip dhcp binding}.
+  \item Comparer le comportement du serveur Cisco à celui d'un serveur VyOS/Kea face à la même
+        attaque.
+\end{itemize}
+
+% ================================================================
+\section{Environnement du laboratoire}
+% ================================================================
+La topologie est montée sous \textbf{GNS3} : un routeur Cisco \textbf{c7200} (nommé \texttt{R1})
+sert de serveur DHCP, relié par un \textbf{switch Ethernet} à une machine \textbf{Kali Linux}
+(VirtualBox) qui joue l'attaquant, sur le réseau \texttt{192.168.6.0/24}.
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{>{\bfseries}l l l l}
+\toprule
+Équipement & Rôle & Adresse IP & Interface / MAC \\
+\midrule
+R1 (Cisco c7200) & Serveur DHCP / passerelle & \texttt{192.168.6.5}         & \texttt{FastEthernet0/0} \\
+Switch1          & Switch (Ethernet switch GNS3) & \texttt{---}             & \texttt{---} \\
+vm-kali          & Attaquant (client DHCP)   & \texttt{192.168.6.11} (DHCP) & \texttt{08:00:27:aa:ac:ee} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent\emph{Note : le document de l'encadrant s'appuyait sur VMware Workstation et son
+réseau NAT (VMnet8). Ici, la topologie est entièrement interne à GNS3 (routeur, switch et VM
+reliés dans GNS3) : l'étape d'identification du réseau NAT VMware ne s'applique donc pas, mais
+le plan d'adressage reste identique (\texttt{192.168.6.0/24}).}
+
+\subsection{Topologie GNS3}
+\capture{images/00_topologie_gns3.png}{Topologie sous GNS3 : \texttt{R1} (routeur Cisco c7200, serveur DHCP) $\rightarrow$ \texttt{Switch1} $\rightarrow$ \texttt{vm-kali-1} (attaquant). Tous les liens sont actifs.}
+
+% ================================================================
+\section{Tâche 1 : Mise en place de la topologie GNS3}
+% ================================================================
+Avant de configurer le DHCP, il faut un routeur Cisco fonctionnel dans GNS3 et une Kali reliée
+à la topologie.
+
+\subsection{Rappels théoriques}
+GNS3 émule les routeurs Cisco à partir d'une \textbf{image IOS} via \textbf{Dynamips}. Un
+routeur c7200 n'a pas besoin de virtualisation matérielle (il n'entre donc pas en conflit avec
+VirtualBox). Une machine VirtualBox existante peut être intégrée comme nœud de la topologie.
+
+\subsection{Manipulations}
+\textbf{1. Importer l'image IOS du routeur :} dans \emph{Edit $\rightarrow$ Preferences
+$\rightarrow$ Dynamips $\rightarrow$ IOS routers}, on crée un modèle à partir du fichier
+\texttt{c7200-adventerprisek9-mz.153-3.XB12.image}, et on calcule une valeur \emph{Idle-PC}
+(pour éviter 100\% de CPU).
+\capture{images/01_c7200_import.png}{Modèle \texttt{c7200} créé dans GNS3 : image IOS chargée, Idle-PC calculé (\texttt{0x60630d08}), slot 0 = C7200-IO-FE (interface FastEthernet0/0).}
+
+\textbf{2. Rattacher la machine Kali (VirtualBox) :} dans \emph{Preferences $\rightarrow$
+VirtualBox VMs}, on ajoute la VM \texttt{vm-kali}. Point important : dans l'onglet
+\emph{Network} du nœud, il faut \textbf{décocher} « Allow GNS3 to use any configured VirtualBox
+adapter » pour que GNS3 câble réellement l'adaptateur de Kali au switch de la topologie (sinon
+Kali reste sur son réseau VirtualBox d'origine et n'obtient pas d'adresse).
+\capture{images/01_vmkali_template.png}{Ajout de la VM \texttt{vm-kali} comme nœud GNS3.}
+
+\textbf{3. Câbler la topologie :} \texttt{R1 (FastEthernet0/0)} $\rightarrow$ \texttt{Switch1}
+$\rightarrow$ \texttt{vm-kali}, puis démarrer les nœuds. Les liens passent au vert lorsque tout
+est actif.
+
+\subsection{Questions de la tâche 1}
+\textbf{Q1. Pourquoi l'émulation du c7200 ne crée-t-elle pas de conflit avec VirtualBox,
+contrairement à ce qu'on redoutait ?}
+
+\textit{Réponse :} Le c7200 est émulé par \textbf{Dynamips}, qui reproduit le processeur du
+routeur de façon logicielle et n'utilise pas la virtualisation matérielle (VT-x). Or le
+conflit classique sous Windows oppose VirtualBox à l'hyperviseur (Hyper-V), tous deux
+demandeurs de VT-x. Comme Dynamips ne réclame pas VT-x, GNS3 (pour le routeur) et VirtualBox
+(pour Kali) cohabitent sans se disputer la virtualisation matérielle.
+
+% ================================================================
+\section{Tâche 2 : Configuration du serveur DHCP sur le routeur Cisco}
+% ================================================================
+On configure R1 exactement comme le « RouteurDHCP » du document de l'encadrant.
+
+\subsection{Manipulations}
+\textbf{1. Configurer l'interface et le pool DHCP :}
+\begin{lstlisting}
+enable
+configure terminal
+ interface fastEthernet 0/0
+  ip address 192.168.6.5 255.255.255.0
+  no shutdown
+ exit
+ ip dhcp pool L3SIMAC
+  network 192.168.6.0 255.255.255.0
+  default-router 192.168.6.2
+ exit
+ ip dhcp excluded-address 192.168.6.2
+ ip dhcp excluded-address 192.168.6.255
+ end
+write memory
+\end{lstlisting}
+\capture{images/02_r1_config.png}{Configuration de R1 : interface FastEthernet0/0 en 192.168.6.5, pool L3SIMAC, adresses exclues. \texttt{show ip interface brief} confirme l'interface \texttt{up/up}.}
+
+\textbf{2. Vérifier que Kali reçoit une adresse du routeur Cisco :} une fois Kali démarrée, son
+interface \texttt{eth0} reçoit automatiquement une adresse du pool.
+\begin{lstlisting}
+ip a
+ping -c 3 192.168.6.5
+\end{lstlisting}
+\capture{images/02_kali_dhcp.png}{Kali a reçu \texttt{192.168.6.11/24} du routeur Cisco (R1). Le \texttt{ping} vers R1 répond avec \texttt{ttl=255}, signature d'un équipement Cisco.}
+
+\textbf{3. Tester la connectivité dans l'autre sens (routeur $\rightarrow$ Kali) :} depuis la
+console de R1, on vérifie qu'on joint bien le client (comme dans le document de l'encadrant).
+\begin{lstlisting}
+ping 192.168.6.11
+\end{lstlisting}
+\capture{images/02_ping_r1_kali.png}{Depuis R1, \texttt{ping 192.168.6.11} : \texttt{Success rate is 100 percent (5/5)}. La connectivité est bidirectionnelle.}
+
+\subsection{Questions de la tâche 2}
+\textbf{Q1. Le \texttt{ttl=255} de la réponse ping vers 192.168.6.5 : qu'indique-t-il ?}
+
+\textit{Réponse :} La valeur de TTL de départ dépend du système. Les équipements Cisco (IOS)
+initialisent le TTL à 255, là où un hôte Linux part en général de 64 et Windows de 128. Un
+\texttt{ping} qui revient avec \texttt{ttl=255} confirme donc que c'est bien le routeur Cisco
+(et non un autre hôte) qui répond, ce qui valide que Kali dialogue avec le bon serveur.
+
+% ================================================================
+\section{Tâche 3 : Installation de yersinia et Wireshark (Partie B)}
+% ================================================================
+L'attaque s'appuie sur \texttt{yersinia} (attaques de niveau 2) et sur \textbf{Wireshark} pour
+l'analyse du trafic. Sur la Kali du lab, yersinia avait déjà été installé selon la procédure de
+l'encadrant. Pour mémoire, l'installation depuis les sources se fait ainsi :
+\begin{lstlisting}
+sudo git clone https://github.com/tomac/yersinia /opt/yersinia
+sudo apt install autoconf libgtk-3-dev libnet1-dev libgtk2.0-dev libpcap-dev -y
+cd /opt/yersinia
+sudo ./autogen.sh
+sudo ./configure --with-gtk
+sudo make
+sudo make install
+\end{lstlisting}
+
+\noindent Sur une Kali récente, la compilation des sources échoue avec le compilateur actuel.
+Le paquet officiel s'installe alors directement :
+\begin{lstlisting}
+sudo apt install -y yersinia
+\end{lstlisting}
+Ce paquet étant compilé sans interface graphique (\texttt{-{}-disable-gtk}), on utilise
+l'interface texte \texttt{sudo yersinia -I} au lieu de \texttt{yersinia -G}. Wireshark est
+présent par défaut sur Kali (\texttt{sudo wireshark}).
+
+% ================================================================
+\section{Tâche 4 : Attaque DHCP Starvation sur le routeur Cisco}
+% ================================================================
+On sature maintenant le serveur DHCP du routeur Cisco et on observe la table de baux se remplir.
+
+\subsection{Manipulations}
+\textbf{1. État initial du serveur (avant attaque) :}
+\begin{lstlisting}
+show ip dhcp binding
+\end{lstlisting}
+\capture{images/03_binding_avant.png}{Avant l'attaque, la table ne contient qu'un bail : \texttt{192.168.6.11} (Kali, Client-ID \texttt{0108.0027.aaac.ee}).}
+
+\textbf{2. Lancer le flood de DISCOVER avec yersinia (sur Kali) :} dans \texttt{yersinia -I},
+mode DHCP (touche \texttt{g}), puis attaque \texttt{1} (\emph{DOS sending DISCOVER packet},
+touche \texttt{x}).
+\capture{images/03_yersinia_flood.png}{yersinia en mode DHCP : plus de 155\,000 paquets DISCOVER envoyés depuis \texttt{0.0.0.0} vers \texttt{255.255.255.255}, avec \texttt{MAC Spoofing [X]} actif (une MAC source différente par paquet).}
+
+\textbf{3. Constater l'épuisement du pool (sur R1) :}
+\begin{lstlisting}
+show ip dhcp binding
+\end{lstlisting}
+\capture{images/03_binding_apres.png}{La table de baux du routeur Cisco est désormais pleine : les adresses du pool (192.168.6.1, .3, .4, \dots) sont attribuées à des MAC falsifiées. Le pool est épuisé.}
+
+\textbf{4. Analyser le trafic avec Wireshark (sur Kali) :}
+\begin{lstlisting}
+sudo wireshark
+\end{lstlisting}
+\capture{images/03_wireshark.png}{Capture Wireshark (filtre \texttt{dhcp}) sur \texttt{eth0} : flot continu de \texttt{DHCP Discover} émis depuis \texttt{0.0.0.0} vers \texttt{255.255.255.255}, avec des adresses MAC source usurpées. Signature typique du DHCP Starvation.}
+
+\subsection{Questions de la tâche 4}
+\textbf{Q1. Pourquoi, sur le routeur Cisco, un simple flood de DISCOVER (yersinia) suffit-il à
+remplir la table de baux, alors qu'il ne suffisait pas sur VyOS/Kea ?}
+
+\textit{Réponse :} C'est la principale observation de ce lab. Le serveur DHCP de Cisco IOS
+inscrit une entrée de type \emph{Automatic} dès qu'il attribue une adresse à une requête, ce
+qui fait apparaître les adresses offertes dans \texttt{show ip dhcp binding} au fil du flood.
+Le moteur \textbf{Kea} de VyOS, lui, ne valide un bail qu'au terme du cycle DORA complet
+(DISCOVER $\rightarrow$ OFFER $\rightarrow$ REQUEST $\rightarrow$ ACK) : un flood de DISCOVER
+seuls y laissait la table vide, et il fallait compléter le handshake (script Scapy) pour vider
+le pool. Même attaque, deux implémentations : le résultat visible dépend du serveur.
+
+\medskip\noindent\textbf{Q2. En quoi l'usurpation de MAC (MAC Spoofing) est-elle le cœur de
+l'attaque ?}
+
+\textit{Réponse :} Le serveur identifie chaque client par son adresse MAC et réserve une
+adresse par MAC. En changeant la MAC source à chaque paquet, yersinia simule des centaines de
+clients distincts et force le routeur à puiser dans son pool jusqu'à l'épuiser. Sans usurpation,
+le serveur n'attribuerait qu'une seule adresse.
+
+% ================================================================
+\section{Réflexion globale et conclusion}
+% ================================================================
+\begin{enumerate}[leftmargin=1.6em]
+  \item \textbf{Difficultés rencontrées et solutions :}
+  \begin{itemize}[leftmargin=1.2em]
+    \item \emph{Modèle Kali fantôme dans GNS3} : un modèle \texttt{kali-linux-2022.1} pointait
+          vers une VM inexistante (erreur \texttt{VBOX\_E\_OBJECT\_NOT\_FOUND}) $\rightarrow$
+          utiliser la vraie VM \texttt{vm-kali}.
+    \item \emph{Kali sans adresse, lien rouge dans GNS3} : l'adaptateur n'était pas câblé au
+          switch $\rightarrow$ \textbf{décocher} « Allow GNS3 to use any configured VirtualBox
+          adapter » et démarrer la VM depuis GNS3 (VM éteinte au préalable).
+  \end{itemize}
+
+  \item \textbf{Comparaison Cisco vs VyOS/Kea :} la même attaque donne un résultat observable
+        différent selon le serveur. Sur Cisco, le flood de DISCOVER remplit directement la table
+        de baux ; sur Kea, il faut le cycle DORA complet. Cela rappelle qu'une attaque doit
+        toujours être évaluée au regard de l'implémentation ciblée.
+
+  \item \textbf{Mesures de défense :} comme pour la version VyOS, la parade se situe sur le
+        \textbf{switch d'accès} : \textbf{DHCP snooping} (ports de confiance, limite de débit,
+        filtrage des réponses pirates) et \textbf{port-security} (limite du nombre de MAC par
+        port, qui coupe net l'usurpation de MAC). Ces contre-mesures font l'objet d'une
+        démonstration dédiée.
+\end{enumerate}
+
+\medskip
+\noindent\textbf{Conclusion.} Cette seconde version confirme l'attaque sur un véritable routeur
+Cisco, dans la maquette du cours : quelques dizaines de secondes de \texttt{yersinia} suffisent
+à épuiser le pool, et \texttt{show ip dhcp binding} se remplit de baux fantômes. La leçon reste
+la même que pour la version VyOS : un protocole sans authentification du client se retourne
+facilement en déni de service, et seul un durcissement de la couche d'accès (DHCP snooping,
+port-security) protège réellement le réseau.
+
+\signatureHamady
+
+% ================================================================
+\section{Annexe : commandes utilisées, rôles et options}
+% ================================================================
+
+\renewcommand{\arraystretch}{1.25}
+\begin{longtable}{@{}p{6.3cm} p{8.5cm}@{}}
+\toprule
+\textbf{Commande} & \textbf{Rôle et options} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Commande} & \textbf{Rôle et options} \\
+\midrule
+\endhead
+\midrule
+\multicolumn{2}{r}{\footnotesize\itshape suite page suivante} \\
+\endfoot
+\bottomrule
+\endlastfoot
+
+\multicolumn{2}{@{}l}{\textbf{\color{forceblue}Configuration du serveur DHCP (Cisco IOS)}} \\*
+\midrule
+\lstinline!enable! & Passe en mode privilégié (EXEC). \\
+\lstinline!configure terminal! & Entre en configuration globale. \\
+\lstinline!interface fastEthernet 0/0! & Sélectionne l'interface du serveur. \\
+\lstinline!ip address 192.168.6.5 255.255.255.0! & Affecte l'IP et le masque /24. \\
+\lstinline!no shutdown! & Active l'interface. \\
+\lstinline!ip dhcp pool L3SIMAC! & Crée le pool DHCP \texttt{L3SIMAC}. \\
+\lstinline!network 192.168.6.0 255.255.255.0! & Plage distribuable du pool. \\
+\lstinline!default-router 192.168.6.2! & Passerelle annoncée aux clients. \\
+\lstinline!ip dhcp excluded-address 192.168.6.2! & Retire la passerelle du pool. \\
+\lstinline!ip dhcp excluded-address 192.168.6.255! & Retire l'adresse de broadcast. \\
+\lstinline!write memory! & Enregistre la configuration en NVRAM. \\
+\lstinline!show ip interface brief! & Affiche l'état et l'IP des interfaces. \\
+\lstinline!show ip dhcp binding! & Liste les baux DHCP : sert à constater l'épuisement du pool. \\
+\midrule
+
+\multicolumn{2}{@{}l}{\textbf{\color{forceblue}Réseau et attaque (Kali)}} \\*
+\midrule
+\lstinline!ip a! & Affiche les interfaces et adresses de Kali. \\
+\lstinline!ping -c 3 192.168.6.5! & Teste la connectivité vers R1 ; \texttt{-c 3} limite à 3 paquets. \\
+\lstinline!sudo yersinia -I! & Interface texte de yersinia ; dans l'outil : \texttt{g} (DHCP) puis \texttt{x} + \texttt{1} (flood DISCOVER). \\
+
+\end{longtable}
+
+\end{document}
