@@ -9,6 +9,14 @@ version où le serveur DHCP était une machine **VyOS** sous VirtualBox.
 > accès à un réseau de production, à des fins strictement pédagogiques. N'effectuez jamais ces
 > techniques sur un système sans autorisation écrite.
 
+## Ce lab en 3 volets
+
+Ce laboratoire DHCP Starvation est publié en trois dépôts complémentaires :
+
+1. Attaque, serveur DHCP **VyOS** sous VirtualBox : [Lab-DHCP-Starvation](https://github.com/hamadycisse7540-hash/Lab-DHCP-Starvation)
+2. Attaque, **routeur Cisco** sous GNS3 : [Lab-DHCP-Starvation-Cisco-GNS3](https://github.com/hamadycisse7540-hash/Lab-DHCP-Starvation-Cisco-GNS3) **(ce dépôt)**
+3. Défense, **DHCP snooping et port-security** sous Packet Tracer : [Lab-DHCP-Starvation-Defense-PacketTracer](https://github.com/hamadycisse7540-hash/Lab-DHCP-Starvation-Defense-PacketTracer)
+
 ## Environnement
 
 | Équipement | Rôle | IP |
